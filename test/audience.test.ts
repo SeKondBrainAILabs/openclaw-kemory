@@ -15,6 +15,8 @@ describe("memoryAllowed", () => {
     expect(memoryAllowed({ memoryAudience: { kind: "conversation" } })).toBe(false);
     expect(memoryAllowed({ ...owner, trigger: "cron" })).toBe(false);
     expect(memoryAllowed({ ...owner, trigger: "heartbeat" })).toBe(false);
+    expect(memoryAllowed({ ...owner, trigger: "webhook" })).toBe(false);
+    expect(memoryAllowed({ ...owner, inputProvenance: { kind: "webhook" } })).toBe(false);
     expect(memoryAllowed({ ...owner, inputProvenance: { kind: "inter_session" } })).toBe(false);
     expect(memoryAllowed({ ...owner, sessionKey: "agent:main:dashboard:incognito-abc" })).toBe(
       false,

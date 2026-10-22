@@ -57,9 +57,9 @@ export function createKemoryClient(
     signal: AbortSignal,
   ): Promise<{ status: number; body: T | undefined }> {
     const headers: Record<string, string> = {
+      ...current.headers,
       Accept: "application/json",
       "User-Agent": `openclaw-kemory/${opts.version}`,
-      ...current.headers,
     };
     if (body !== undefined) headers["Content-Type"] = "application/json";
 

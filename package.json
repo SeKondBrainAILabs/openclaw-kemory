@@ -33,7 +33,7 @@
       "pluginApi": ">=2026.10.1"
     },
     "install": {
-      "minHostVersion": "2026.10.1"
+      "minHostVersion": ">=2026.10.1"
     }
   },
   "peerDependencies": {

@@ -1,10 +1,18 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getPreparedPluginSecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NOT_SIGNED_IN } from "../src/auth.js";
 import plugin from "../src/index.js";
+import { VERSION } from "../src/version.js";
 import { createFakeApi } from "./helpers/fake-api.js";
 import { type FakeKemory, startFakeKemory } from "./helpers/fake-kemory.js";
 import { useTempHome } from "./helpers/temp-home.js";
+
+// register wires OpenClaw's prepared-secret reader in directly, so the module is
+// replaced to drive it; every test that does not set a value sees "no secret".
+vi.mock("openclaw/plugin-sdk/secret-input-runtime", () => ({
+  getPreparedPluginSecretInput: vi.fn(),
+}));
 
 let home: ReturnType<typeof useTempHome>;
 let fake: FakeKemory;
@@ -19,6 +27,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.mocked(getPreparedPluginSecretInput).mockReset();
   home.restore();
   await fake.close();
   process.env = { ...savedEnv };
@@ -65,6 +74,29 @@ describe("plugin entry", () => {
 
     expect(warnings(fakeApi.logs)).toEqual([]);
     expect(fakeApi.logs.filter((l) => l.level === "info")).toHaveLength(1);
+  });
+
+  it("the prepared secret is read inside start, never in register, even when pluginConfig holds a plain string", async () => {
+    const prepared = vi.mocked(getPreparedPluginSecretInput);
+    prepared.mockReturnValue({ value: "KEY-PREPARED", revision: 1 } as never);
+    const fakeApi = createFakeApi({ baseUrl: fake.url });
+
+    plugin.register(fakeApi.api);
+    expect(prepared).not.toHaveBeenCalled();
+
+    await fakeApi.services[0]?.start({});
+    expect(prepared).toHaveBeenCalledWith("kemory", "apiKey");
+    expect(warnings(fakeApi.logs)).toEqual([]);
+  });
+
+  it("package.json carries the manifest version and a >= semver minHostVersion", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+      openclaw: { install: { minHostVersion: string } };
+    };
+
+    expect(VERSION).toBe(pkg.version);
+    expect(pkg.openclaw.install.minHostVersion).toMatch(/^>=\d+\.\d+\.\d+$/u);
   });
 
   it("manifest declares kind memory, the four tools and apiKey as a secret input", () => {

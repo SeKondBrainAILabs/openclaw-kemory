@@ -23,8 +23,8 @@ export default definePluginEntry({
     const config = parseConfig(api.pluginConfig);
     const log = createLog(api.logger, { debug: config.debug });
     const home = homedir();
-    // A SecretRef is readable only inside an invocation, so it is read per call
-    // from here and never in register.
+    // OpenClaw hands out a prepared SecretRef value only inside an invocation and
+    // expects it to be read at use time, so it is read per call and never here.
     const auth = createAuthProvider(config, {
       log,
       home,
@@ -44,8 +44,8 @@ export default definePluginEntry({
       async start() {
         try {
           const resolved = await deps.auth.resolve(AbortSignal.timeout(config.requestTimeoutMs));
-          // With a SecretRef the key exists only inside an invocation, so
-          // "no key yet" says nothing about sign-in at startup.
+          // A configured SecretRef that is not prepared yet is reported once by
+          // the auth provider; "not signed in" would be the wrong message.
           if (!resolved && !config.apiKeyRef && !warnedNotSignedIn) {
             warnedNotSignedIn = true;
             log.warn(NOT_SIGNED_IN);

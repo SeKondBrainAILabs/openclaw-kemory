@@ -54,6 +54,49 @@ describe("parseConfig", () => {
     expect(config.apiKey).toBeUndefined();
   });
 
+  it("reads every non-default value", () => {
+    expect(
+      parseConfig(
+        {
+          apiKey: "k-123456",
+          env: "india",
+          baseUrl: "http://127.0.0.1:9",
+          autoRecall: false,
+          autoCapture: false,
+          captureNamespace: "team:notes",
+          captureVisibility: "org",
+          contextMaxChars: 1234,
+          contextNamespaces: ["a", "b"],
+          recallTimeoutMs: 3000,
+          requestTimeoutMs: 20000,
+          debug: true,
+        },
+        {},
+      ),
+    ).toEqual({
+      apiKey: "k-123456",
+      apiKeyRef: false,
+      env: "india",
+      baseUrl: "http://127.0.0.1:9",
+      autoRecall: false,
+      autoCapture: false,
+      captureNamespace: "team:notes",
+      captureVisibility: "org",
+      contextMaxChars: 1234,
+      contextNamespaces: ["a", "b"],
+      recallTimeoutMs: 3000,
+      requestTimeoutMs: 20000,
+      debug: true,
+    });
+  });
+
+  it("an unexpanded environment placeholder is not an apiKey", () => {
+    const placeholder = ["$", "{KEMORY_API_KEY}"].join("");
+    const config = parseConfig({ apiKey: placeholder }, {});
+    expect(config.apiKey).toBeUndefined();
+    expect(config.apiKeyRef).toBe(false);
+  });
+
   it("trims a string apiKey and falls back to defaults for values of the wrong type", () => {
     const config = parseConfig(
       { apiKey: "  k-123  ", autoRecall: "yes", recallTimeoutMs: "fast", contextNamespaces: "a" },

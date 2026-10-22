@@ -54,11 +54,17 @@ export async function startFakeKemory(): Promise<FakeKemory> {
     requests.push(recorded);
 
     const entry = routes.get(`${method} ${path}`);
-    const route: FakeRoute = entry
-      ? typeof entry === "function"
-        ? entry(recorded)
-        : entry
-      : { status: 404, body: { detail: "not found" } };
+    let route: FakeRoute;
+    try {
+      route = entry
+        ? typeof entry === "function"
+          ? entry(recorded)
+          : entry
+        : { status: 404, body: { detail: "not found" } };
+    } catch (err) {
+      // A buggy route must fail the test fast, not hang the client until its deadline.
+      route = { status: 500, body: { detail: `fake route threw: ${String(err)}` } };
+    }
 
     if (route.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, route.delayMs));

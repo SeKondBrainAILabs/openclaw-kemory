@@ -22,6 +22,9 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+// An environment placeholder OpenClaw left unexpanded is not a key.
+const UNRESOLVED_PLACEHOLDER = /^\$\{[^}]*\}$/u;
+
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -51,9 +54,12 @@ export function parseConfig(
 ): KemoryConfig {
   const cfg = isObject(raw) ? raw : {};
   const apiKeyRef = isObject(cfg.apiKey);
+  const configured = nonEmptyString(cfg.apiKey);
+  const apiKeyString =
+    configured !== undefined && !UNRESOLVED_PLACEHOLDER.test(configured) ? configured : undefined;
 
   return {
-    apiKey: nonEmptyString(cfg.apiKey),
+    apiKey: apiKeyString,
     apiKeyRef,
     env: (nonEmptyString(cfg.env) ?? nonEmptyString(env.KEMORY_ENV) ?? "prod").toLowerCase(),
     baseUrl: nonEmptyString(cfg.baseUrl)?.replace(/\/+$/u, ""),

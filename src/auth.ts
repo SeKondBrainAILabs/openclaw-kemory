@@ -37,20 +37,32 @@ export function createAuthProvider(
 ): AuthProvider {
   const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
 
-  function configApiKey(): string | undefined {
-    if (!config.apiKeyRef) return config.apiKey;
+  // Only a boolean outlives a call, never the key. OpenClaw resolves a SecretRef
+  // into pluginConfig before register, so config.apiKey is then a stale copy.
+  let sawPreparedSecret = false;
+
+  function readPreparedSecret(): string | undefined {
     let value: unknown;
     try {
       value = opts.readSecretApiKey?.();
     } catch {
-      value = undefined;
+      return undefined;
     }
     const key = typeof value === "string" ? value.trim() : "";
-    if (key === "") {
+    return key === "" ? undefined : key;
+  }
+
+  function configApiKey(): string | undefined {
+    const prepared = readPreparedSecret();
+    if (prepared !== undefined) {
+      sawPreparedSecret = true;
+      return prepared;
+    }
+    if (config.apiKeyRef || sawPreparedSecret) {
       opts.log.once("secret-ref", SECRET_REF_UNAVAILABLE);
       return undefined;
     }
-    return key;
+    return config.apiKey;
   }
 
   return {

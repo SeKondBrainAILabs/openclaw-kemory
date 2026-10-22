@@ -279,6 +279,22 @@ describe("client.request", () => {
     expect(err.kind).toBe("timeout");
   });
 
+  it("the deadline holds when auth.resolve ignores the signal", async () => {
+    const auth: AuthProvider = {
+      resolve: () => new Promise(() => {}),
+      refreshAfter401: async () => null,
+    };
+
+    const started = Date.now();
+    const err = await failure(
+      createKemoryClient(auth, { version: VERSION }).request("GET", "/p", { timeoutMs: 200 }),
+    );
+
+    expect(err.kind).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(fake.requests).toHaveLength(0);
+  });
+
   it("the api key never appears in an error message", async () => {
     fake.on("GET", "/boom", { status: 500, body: { detail: "broken" } });
     fake.on("GET", "/denied", { status: 401 });

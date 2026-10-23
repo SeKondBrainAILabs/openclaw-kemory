@@ -1,0 +1,132 @@
+{
+  "id": "kemory",
+  "name": "Kemory",
+  "description": "Kemory memory for OpenClaw: your Kemory context before each direct turn, your prompts saved after it, and memory tools.",
+  "kind": "memory",
+  "activation": {
+    "onStartup": true,
+    "onCommands": ["kemory"]
+  },
+  "cliCommands": [
+    {
+      "name": "kemory",
+      "description": "Kemory memory: sign-in status",
+      "hasSubcommands": true
+    }
+  ],
+  "contracts": {
+    "tools": ["kemory_search", "kemory_store", "kemory_forget", "kemory_profile"]
+  },
+  "toolMetadata": {
+    "kemory_store": {
+      "sideEffecting": true
+    },
+    "kemory_forget": {
+      "sideEffecting": true
+    }
+  },
+  "configContracts": {
+    "secretInputs": {
+      "paths": [
+        {
+          "path": "apiKey",
+          "expected": "string",
+          "ownerKind": "capability"
+        }
+      ]
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "Kemory API key",
+      "help": "Only needed when `kemory login` has not been run on this host. Create one with `kemory keys create --for openclaw --write`.",
+      "sensitive": true
+    },
+    "autoRecall": {
+      "label": "Load Kemory context before each turn"
+    },
+    "autoCapture": {
+      "label": "Save your prompts to Kemory after each turn"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "$defs": {
+      "secretRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["env", "file", "exec", "store"]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["source", "provider", "id"]
+      },
+      "secretInput": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "$ref": "#/$defs/secretRef"
+          }
+        ]
+      }
+    },
+    "properties": {
+      "apiKey": {
+        "$ref": "#/$defs/secretInput"
+      },
+      "env": {
+        "type": "string"
+      },
+      "baseUrl": {
+        "type": "string"
+      },
+      "autoRecall": {
+        "type": "boolean"
+      },
+      "autoCapture": {
+        "type": "boolean"
+      },
+      "captureNamespace": {
+        "type": "string"
+      },
+      "captureVisibility": {
+        "type": "string"
+      },
+      "contextMaxChars": {
+        "type": "integer",
+        "minimum": 500
+      },
+      "contextNamespaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "recallTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 15000
+      },
+      "requestTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000
+      },
+      "debug": {
+        "type": "boolean"
+      }
+    }
+  }
+}

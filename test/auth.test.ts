@@ -298,12 +298,15 @@ describe("refreshing the login", () => {
 
     const withKey = stack({ apiKey: "config-key", baseUrl: fake.url });
     await withKey.client.request("GET", API_PATH, { timeoutMs: 2000 });
+    // The issuer was asked, and its refusal is what sent the call to the config key.
+    expect(tokenRequests()).toHaveLength(1);
     expect(apiRequests()[0]?.headers["x-api-key"]).toBe("config-key");
     expect(apiRequests()[0]?.headers.authorization).toBeUndefined();
 
     const without = stack();
     const err = await failure(without.client.request("GET", API_PATH, { timeoutMs: 2000 }));
     expect(err.kind).toBe("not_signed_in");
+    expect(tokenRequests()).toHaveLength(2);
     expect(apiRequests()).toHaveLength(1);
     // The file is left alone for the CLI to sort out.
     expect(readCredentialsFile(tmp.home).refresh_token).toBe("refresh-token-one");
@@ -318,6 +321,7 @@ describe("refreshing the login", () => {
     const { auth } = stack();
 
     expect(await auth.resolve(AbortSignal.timeout(2000))).toBeNull();
+    expect(tokenRequests()).toHaveLength(1);
   });
 
   it("an unreachable issuer rejects the request as a network error and keeps the file", async () => {

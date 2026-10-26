@@ -76,6 +76,22 @@ describe("renderContext", () => {
     );
   });
 
+  it("omits every line after the first one over budget, even one that would still fit", () => {
+    // Costs 10, 30 and 7: the third would fit after the first, but the second stops the list.
+    const out = renderContext(
+      body(
+        { namespace: "n", summary: "aaaa" },
+        { namespace: "n", summary: "b".repeat(24) },
+        { namespace: "n", summary: "c" },
+      ),
+      { maxChars: 20, namespaces: [] },
+    );
+
+    expect(out).toContain("- [n] aaaa");
+    expect(out).not.toContain("- [n] c");
+    expect(out).toContain("(2 more namespace summaries omitted");
+  });
+
   it("counts a line in code points, not UTF-16 units", () => {
     // "- [n] " plus 4 emoji is 10 code points but 14 UTF-16 units.
     const out = renderContext(body({ namespace: "n", summary: "😀😀😀😀" }), {

@@ -266,6 +266,29 @@ describe("provider runtime", () => {
     expect(seen?.aborted).toBe(false);
   });
 
+  it("health gives up on a hung sign-in check once requestTimeoutMs has passed", async () => {
+    const auth: AuthProvider = {
+      resolve(signal) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+      async refreshAfter401() {
+        return null;
+      },
+    };
+
+    const started = Date.now();
+    const health = await (
+      await open(makeDeps({ requestTimeoutMs: 1000 }, auth), { kind: "host", operation: "status" })
+    ).health();
+    const elapsed = Date.now() - started;
+
+    expect(health).toEqual({ status: "degraded", message: "sign-in check failed" });
+    expect(elapsed).toBeGreaterThanOrEqual(900);
+    expect(elapsed).toBeLessThan(2000);
+  });
+
   it("a throwing context.assertCurrent stops search before and after the request", async () => {
     fake.on("POST", "/api/v1/memories/search", {
       body: { items: [{ memory_id: "m1", namespace: "n", content: "private text" }] },

@@ -62,7 +62,7 @@ function createHandle(
         limit: clamp(request.maxResults, 1, MAX_RESULTS, DEFAULT_RESULTS),
         search_mode: "hybrid",
       };
-      // The server enforces the floor: its replies carry no score to filter on here.
+      // Sent as min_score for the server to apply: its replies carry no score to filter on here.
       if (request.minScore !== undefined) body.min_score = request.minScore;
 
       context.assertCurrent();

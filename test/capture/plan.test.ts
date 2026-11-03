@@ -74,6 +74,11 @@ describe("planCapture", () => {
     expect(plan.next.recent).toHaveLength(5);
   });
 
+  it("a maxTurns of 0 or less posts every new prompt", () => {
+    expect(mustPlan(["a", "b", "c"], null, { maxTurns: 0 }).turns).toBe(3);
+    expect(mustPlan(["a", "b", "c"], null, { maxTurns: -1 }).turns).toBe(3);
+  });
+
   it("a flush stores a single pending prompt", () => {
     const plan = planCapture({
       prompts: ["only one"],
@@ -146,6 +151,9 @@ describe("planCapture", () => {
     const body = plan.content.split("\n\n").slice(2).join("\n\n");
     expect(body).toBe("- a\n- b\n- ");
     expect(plan.content).not.toContain("sk-");
+    // A cut inside the secret keeps part of the placeholder, never the start of the secret.
+    const straddle = mustPlan(["a", "b", `key ${secret}`], null, { maxChars: 20 });
+    expect(straddle.content.split("\n\n").slice(2).join("\n\n")).toBe("- a\n- b\n- key [REDAC");
     const kept = mustPlan(["a", "b", `key ${secret}`], null);
     expect(kept.content.endsWith("- key [REDACTED]")).toBe(true);
   });
@@ -221,6 +229,13 @@ describe("newPromptStart", () => {
   it("trusts the stored position when the prompt there is the last stored one", () => {
     expect(newPromptStart(["a", "b", "c", "d"], stateFor(["a", "b"]))).toBe(2);
     expect(newPromptStart(["a", "b"], stateFor(["a", "b"]))).toBe(2);
+    // The position at the very end is trusted even when the prompt before it differs.
+    const state = { digest: "d", captured_turns: 2, recent: ["x", "yes"].map(fingerprint) };
+    expect(newPromptStart(["z", "yes"], state)).toBe(2);
+  });
+
+  it("searches from the newest prompt back, so an earlier copy of the stored pair is ignored", () => {
+    expect(newPromptStart(["a", "b", "c", "a", "b", "d"], stateFor(["a", "b"], 99))).toBe(5);
   });
 
   it("prefers the stored position over a later copy of the same prompt", () => {

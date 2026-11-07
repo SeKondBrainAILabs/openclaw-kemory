@@ -195,6 +195,24 @@ describe("capture hooks", () => {
     expect(markExists()).toBe(false);
   });
 
+  it("session_end drops the pending entry once its flush settles, even when the POST fails", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b"));
+    fake.on("POST", MEMORIES_PATH, { status: 500, body: { detail: "boom" } });
+
+    await fakeApi.runHook(
+      "session_end",
+      { sessionId: "s1", sessionKey: SESSION_KEY, messageCount: 2 },
+      { agentId: "main", sessionId: "s1", sessionKey: SESSION_KEY },
+    );
+    expect(posts()).toHaveLength(1);
+
+    fake.on("POST", MEMORIES_PATH, { status: 201, body: { memory_id: "m1" } });
+    await fakeApi.runHook("gateway_stop", {}, {});
+
+    expect(posts()).toHaveLength(1);
+  });
+
   it("the same messages are never sent twice", async () => {
     const fakeApi = setup();
     const messages = owned("a", "b", "c");

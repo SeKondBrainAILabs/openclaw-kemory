@@ -359,7 +359,8 @@ describe("capture hooks", () => {
     const fakeApi = setup();
 
     await endTurn(fakeApi, owned("a", "b"));
-    await fakeApi.runHook("before_compaction", { messageCount: 2 }, OWNER_CTX);
+    // The context OpenClaw's auto-compaction sends: the session key and nothing else.
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, { sessionKey: SESSION_KEY });
 
     expect(posts()).toHaveLength(1);
     expect(sentContent()).toContain("(before compaction, user turns only");
@@ -383,7 +384,7 @@ describe("capture hooks", () => {
     expect(String(flushed.content)).toContain("(at session end, user turns only");
   });
 
-  it("before_compaction does not flush prompts when the compaction turn fails the audience check", async () => {
+  it("before_compaction flushes with the context queued compaction sends, which has no audience", async () => {
     const fakeApi = setup();
     await endTurn(fakeApi, owned("a", "b"));
 
@@ -391,12 +392,61 @@ describe("capture hooks", () => {
       "before_compaction",
       { messageCount: 2 },
       {
-        ...OWNER_CTX,
-        memoryAudience: { kind: "conversation" },
+        sessionId: "s1",
+        agentId: "main",
+        sessionKey: SESSION_KEY,
+        workspaceDir: "/tmp/workspace",
+        messageProvider: "telegram",
       },
     );
 
+    expect(posts()).toHaveLength(1);
+    expect(sentContent()).toContain("(before compaction, user turns only");
+    expect(sentContent()).toContain("- a\n- b");
+    expect(sentBody().session_id).toBe("s1");
+  });
+
+  it("before_compaction flushes only the entry of the agent it names, and keeps the entry", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b"), { ...OWNER_CTX, agentId: "main" });
+    await endTurn(fakeApi, owned("p", "q"), { ...OWNER_CTX, agentId: "helper" });
+
+    await fakeApi.runHook(
+      "before_compaction",
+      { messageCount: 2 },
+      { agentId: "helper", sessionKey: SESSION_KEY },
+    );
+
+    expect(posts()).toHaveLength(1);
+    expect(sentContent()).toContain("- p\n- q");
+    expect(markExists("main")).toBe(false);
+
+    // The entry is not deleted, so the shutdown flush still reaches it and the mark stops a resend.
+    await fakeApi.runHook("gateway_stop", {}, {});
+    expect(posts()).toHaveLength(2);
+    expect(sentContent(1)).toContain("- a\n- b");
+  });
+
+  it("before_compaction with no session key or an unknown one sends nothing", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b"));
+
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, {});
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, { sessionKey: "agent:main:x" });
+
     expect(posts()).toHaveLength(0);
+  });
+
+  it("before_compaction sends nothing for a session whose agent_end failed the audience check", async () => {
+    const fakeApi = setup();
+    const conversation = { ...OWNER_CTX, memoryAudience: { kind: "conversation" } };
+    await endTurn(fakeApi, owned("a", "b"), conversation);
+
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, { sessionKey: SESSION_KEY });
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, conversation);
+
+    expect(posts()).toHaveLength(0);
+    expect(markExists()).toBe(false);
   });
 
   it("session_end flushes only the entry of the agent it names", async () => {

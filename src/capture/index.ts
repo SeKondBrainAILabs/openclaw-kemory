@@ -31,11 +31,28 @@ function pendingKey(agentId: string | undefined, sessionKey: string): string {
 }
 
 /**
+ * The pending entries of one session. Hooks whose host context carries no audience (and
+ * sometimes no agentId) find their entries this way: by session key, narrowed to one agent
+ * only when the context names it.
+ */
+function entriesOfSession(
+  pending: Map<string, PendingCapture>,
+  sessionKey: string,
+  agentId: string | undefined,
+): [string, PendingCapture][] {
+  return [...pending].filter(
+    ([, entry]) =>
+      entry.sessionKey === sessionKey && (agentId === undefined || entry.agentId === agentId),
+  );
+}
+
+/**
  * Saves the owner's prompts to Kemory after each successful turn, and flushes whatever is
  * still unsent when a session compacts or ends and when the gateway stops. Nothing is
  * buffered unless a turn passed memoryAllowed, and extractUserPrompts keeps only the
- * messages OpenClaw marks as the owner's, so the flushes (whose host contexts carry no
- * audience) can only send prompts that were already cleared.
+ * messages OpenClaw marks as the owner's. The flush hooks are matched to a session by its
+ * key, without an audience check: OpenClaw's compaction and session-end contexts carry no
+ * audience, and they can only send prompts that were already cleared.
  */
 export function registerCapture(api: OpenClawPluginApi, deps: PluginDeps): void {
   const { config, client, log } = deps;
@@ -130,14 +147,19 @@ export function registerCapture(api: OpenClawPluginApi, deps: PluginDeps): void 
     "before_compaction",
     async (_event, ctx) => {
       try {
-        if (!memoryAllowed(ctx) || !ctx.sessionKey) return;
-        const entry = pending.get(pendingKey(ctx.agentId, ctx.sessionKey));
-        if (!entry) return;
-        await queueCapture(entry, {
-          kind: "flush",
-          when: "before compaction",
-          endReason: "compaction",
-        });
+        // No audience check: OpenClaw sends this hook a context without one on its main
+        // compaction paths. Only prompts from a gated agent_end are ever pending. The entry
+        // stays, because the session goes on after compacting.
+        if (!ctx.sessionKey) return;
+        await Promise.all(
+          entriesOfSession(pending, ctx.sessionKey, ctx.agentId).map(([, entry]) =>
+            queueCapture(entry, {
+              kind: "flush",
+              when: "before compaction",
+              endReason: "compaction",
+            }),
+          ),
+        );
       } catch (err) {
         log.failure("capture", err);
       }
@@ -151,21 +173,16 @@ export function registerCapture(api: OpenClawPluginApi, deps: PluginDeps): void 
       try {
         const sessionKey = event.sessionKey ?? ctx.sessionKey;
         if (!sessionKey) return;
-        const flushes: Promise<void>[] = [];
-        for (const [key, entry] of pending) {
-          if (entry.sessionKey !== sessionKey) continue;
-          if (ctx.agentId !== undefined && entry.agentId !== ctx.agentId) continue;
-          flushes.push(
-            queueCapture(entry, {
-              kind: "flush",
-              when: "at session end",
-              endReason: `session_end:${event.reason ?? "unknown"}`,
-            }).then(() => {
-              // A newer turn may have replaced the entry while the flush ran.
-              if (pending.get(key) === entry) pending.delete(key);
-            }),
-          );
-        }
+        const flushes = entriesOfSession(pending, sessionKey, ctx.agentId).map(([key, entry]) =>
+          queueCapture(entry, {
+            kind: "flush",
+            when: "at session end",
+            endReason: `session_end:${event.reason ?? "unknown"}`,
+          }).then(() => {
+            // A newer turn may have replaced the entry while the flush ran.
+            if (pending.get(key) === entry) pending.delete(key);
+          }),
+        );
         await Promise.all(flushes);
       } catch (err) {
         log.failure("capture", err);

@@ -47,7 +47,7 @@ The plugin looks for a credential on every request, in this order.
 1. **`kemory login`.** Run it on the gateway host. The plugin reads the credentials the Kemory CLI stored in `~/.kemory/credentials-<env>` (`<env>` is `prod` unless you set `env` or `KEMORY_ENV`) and refreshes them in place, the way the CLI does, so the CLI and the plugin stay signed in together. Requests go to the organisation you chose with `kemory use`.
 2. **An API key.** Create one with `kemory keys create --for openclaw --write` and set it as `plugins.entries.kemory.config.apiKey`, either as a string or as an OpenClaw SecretRef. The key's organisation is fixed when you create it. A key made without `--write` can search but not store, forget or capture.
 
-A new key may come back with the status `pending_approval`. Until it is approved, Kemory answers 401 and the plugin shows the not-signed-in message below.
+A new key may come back with the status `pending_approval`. Until it is approved, Kemory answers every request with 401. The plugin still counts the key as a credential, so it does not show the not-signed-in message below. The tools reply `Kemory request failed (http 401); memory is unavailable right now.`, the gateway log carries a warning, and `openclaw kemory status` ends with `account: error http 401`.
 
 The plugin never writes OpenClaw's config.
 
@@ -70,7 +70,7 @@ openclaw kemory status
 - Each save holds at most the last 12 new prompts and 8000 characters.
 - Prompts are saved mid-session once 3 new ones have built up. Whatever is still unsent is flushed at compaction, at session end and at gateway shutdown.
 - They are stored in the namespace `user:sessions` with visibility `user-private`, in the organisation your login or API key belongs to.
-- A mark in `~/.kemory/.captured/` records what has been saved, so nothing is saved twice. It is written only after Kemory accepts a save, so a failed save is retried with the next turn.
+- A mark in `~/.kemory/.captured/` records what has been saved, so nothing is saved twice. It is written only after Kemory accepts a save, so a failed save is retried with a later turn.
 
 Change the namespace and visibility with `captureNamespace` and `captureVisibility`.
 

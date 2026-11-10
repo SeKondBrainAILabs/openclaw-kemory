@@ -427,6 +427,23 @@ describe("capture hooks", () => {
     expect(sentContent(1)).toContain("- a\n- b");
   });
 
+  it("before_compaction keeps the entry, so a failed compaction flush is resent at shutdown", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b"));
+    fake.on("POST", MEMORIES_PATH, { status: 500, body: { detail: "boom" } });
+
+    await fakeApi.runHook("before_compaction", { messageCount: 2 }, { sessionKey: SESSION_KEY });
+    expect(posts()).toHaveLength(1);
+    expect(markExists()).toBe(false);
+
+    fake.on("POST", MEMORIES_PATH, { status: 201, body: { memory_id: "m1" } });
+    await fakeApi.runHook("gateway_stop", {}, {});
+
+    expect(posts()).toHaveLength(2);
+    expect(sentContent(1)).toContain("- a\n- b");
+    expect(markExists()).toBe(true);
+  });
+
   it("before_compaction with no session key or an unknown one sends nothing", async () => {
     const fakeApi = setup();
     await endTurn(fakeApi, owned("a", "b"));

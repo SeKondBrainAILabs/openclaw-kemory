@@ -394,6 +394,29 @@ describe("kemory tools", () => {
     expect(failures.some((m) => m.startsWith("kemory: tool failed:"))).toBe(true);
   });
 
+  it("every tool gives up at requestTimeoutMs", async () => {
+    const { factory } = setup({ requestTimeoutMs: 1000 });
+    const tools = toolsFor(factory);
+    const slow = { delayMs: 1600, body: {} };
+    fake.on("POST", SEARCH_PATH, slow);
+    fake.on("POST", MEMORIES_PATH, slow);
+    fake.on("DELETE", `${MEMORIES_PATH}/${ID_A}`, slow);
+    fake.on("GET", CONTEXT_PATH, slow);
+
+    const started = Date.now();
+    const replies = await Promise.all([
+      text(tools.kemory_search, { query: "q" }),
+      text(tools.kemory_store, { content: "c" }),
+      text(tools.kemory_forget, { memoryId: ID_A }),
+      text(tools.kemory_profile, {}),
+    ]);
+
+    expect(replies).toEqual(
+      Array(4).fill("Kemory request failed (timeout); memory is unavailable right now."),
+    );
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
   it("a malformed store reply is a failure, not a success", async () => {
     const { factory } = setup();
     fake.on("POST", MEMORIES_PATH, { body: { unexpected: true } });

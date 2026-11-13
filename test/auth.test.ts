@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthProvider, REFRESH_TIMEOUT_MS } from "../src/auth.js";
 import { createKemoryClient, KemoryError } from "../src/client.js";
 import { parseConfig } from "../src/config.js";
@@ -196,6 +196,26 @@ describe("sign-in from the kemory login file", () => {
 });
 
 describe("refreshing the login", () => {
+  it("a token that expires exactly 60 s from now is refreshed", async () => {
+    // Only Date is faked: the fake server needs real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const nowSeconds = 1_800_000_000;
+      vi.setSystemTime(nowSeconds * 1000);
+      login({ expires_at: nowSeconds + 60 });
+      fake.on("POST", TOKEN_PATH, { body: rotated(2) });
+      fake.on("GET", API_PATH, { body: {} });
+      const { client } = stack();
+
+      await client.request("GET", API_PATH, { timeoutMs: 2000 });
+
+      expect(tokenRequests()).toHaveLength(1);
+      expect(apiRequests()[0]?.headers.authorization).toBe("Bearer access-token-2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a token within 60 s of expiry is refreshed and the rotated tokens are written back", async () => {
     login({ expires_at: soon(), zzz_unknown: "kept" });
     fake.on("POST", TOKEN_PATH, { body: rotated(2) });

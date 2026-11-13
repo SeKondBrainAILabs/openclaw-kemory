@@ -324,6 +324,19 @@ describe("refreshing the login", () => {
     expect(tokenRequests()).toHaveLength(1);
   });
 
+  it("a rejected refresh does not reuse a file whose access token is new but whose refresh token did not rotate", async () => {
+    login({ expires_at: soon() });
+    fake.on("POST", TOKEN_PATH, () => {
+      // Same refresh token as before, so the rejection still applies to it.
+      login({ access_token: "new-but-same-refresh", expires_at: Date.now() / 1000 + 3600 });
+      return { status: 400, body: { error: "invalid_grant" } };
+    });
+    const { auth } = stack();
+
+    expect(await auth.resolve(AbortSignal.timeout(2000))).toBeNull();
+    expect(tokenRequests()).toHaveLength(1);
+  });
+
   it("an unreachable issuer rejects the request as a network error and keeps the file", async () => {
     login({ expires_at: soon(), issuer: "http://127.0.0.1:1" });
     const { client } = stack({ apiKey: "config-key" });

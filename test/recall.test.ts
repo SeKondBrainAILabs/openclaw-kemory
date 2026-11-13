@@ -317,4 +317,22 @@ describe("plugin entry wiring", () => {
     expect(fake.requests[0]?.headers["x-api-key"]).toBe("wired-key-123456");
     expect(fakeApi.memoryCapabilities).toHaveLength(1);
   });
+
+  it("returns undefined and logs one recall warning when the hook itself throws", async () => {
+    const fakeApi = setup();
+    const ctx = {
+      sessionKey: OWNER.sessionKey,
+      get memoryAudience(): never {
+        throw new Error("audience exploded");
+      },
+    };
+
+    const result = await recall(fakeApi, ctx);
+
+    expect(result).toBeUndefined();
+    expect(warnings(fakeApi).map((l) => l.msg)).toEqual([
+      "kemory: recall failed: audience exploded",
+    ]);
+    expect(fake.requests).toHaveLength(0);
+  });
 });

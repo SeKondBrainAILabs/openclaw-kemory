@@ -53,6 +53,17 @@ describe("readCredentials", () => {
     });
   });
 
+  it("a first JSON object that does not parse reads as null, even when a valid object follows", async () => {
+    for (const text of [
+      "{version: 2}",
+      '{"version": 2,}',
+      `{bad}${JSON.stringify(credentialsFixture())}`,
+    ]) {
+      writeRaw(text);
+      expect(await readCredentials(home, "prod")).toBeNull();
+    }
+  });
+
   it("a missing required key, version 1, invalid JSON or a missing file reads as null", async () => {
     expect(await readCredentials(home, "prod")).toBeNull();
 

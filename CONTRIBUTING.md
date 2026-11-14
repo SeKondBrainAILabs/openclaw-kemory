@@ -14,6 +14,7 @@
 | `pnpm typecheck` | `tsc --noEmit`                            |
 | `pnpm test`      | `vitest run`                              |
 | `pnpm build`     | `tsc -p tsconfig.build.json` into `dist/` |
+| `pnpm check`     | lint, typecheck and tests in one command  |
 
 Formatting and linting use [Biome](https://biomejs.dev). There is no Prettier or ESLint here.
 TypeScript is strict, and relative imports use `.js` extensions.

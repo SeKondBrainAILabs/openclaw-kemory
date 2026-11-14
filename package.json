@@ -20,7 +20,8 @@
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "openclaw": {
     "extensions": [

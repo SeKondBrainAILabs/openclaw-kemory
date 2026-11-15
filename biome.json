@@ -18,7 +18,11 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "suspicious": {
+        "noFocusedTests": "error",
+        "noSkippedTests": "error"
+      }
     }
   },
   "javascript": {

@@ -13,6 +13,23 @@ const HINTS = [
   "Delivery: No visible reply is delivered automatically in this run, and none is expected by default. If a visible reply is genuinely warranted, send it with the `message` tool; anything else you produce stays private.",
 ];
 
+// Copied verbatim from LEGACY_REQUESTER_PROFILE_HINT in openclaw 2026.11.3 dist/strip-inbound-meta-*.mjs.
+const LEGACY_HINT =
+  'requester_profile is the verified linked requester. For "assign to me", use sessions assign_owner with ownerType="human" and ownerId=requester_profile.id, if available.';
+const LEGACY_JSON = '{"requester_profile":{"id":"u1"}}';
+
+function legacyInput(
+  overrides: { header?: string; json?: string; gap?: string; after?: string } = {},
+) {
+  const {
+    header = "Conversation info: ",
+    json = LEGACY_JSON,
+    gap = "\n\n",
+    after = "\n\nassign this to me",
+  } = overrides;
+  return `${header}${CTX}\n\`\`\`json\n${json}\n\`\`\`${gap}${LEGACY_HINT}${after}`;
+}
+
 function owner(content: unknown, extra: Record<string, unknown> = {}) {
   return { role: "user", content, __openclaw: { senderIsOwner: true }, ...extra };
 }
@@ -113,6 +130,15 @@ describe("extractUserPrompts", () => {
   });
 });
 
+describe("extractUserPrompts with CRLF and the legacy hint", () => {
+  it("strips the timestamp of a CRLF message and the legacy hint layout", () => {
+    expect(extractUserPrompts([owner(`${HINTS[0]}\r\n\r\n[Wed 2026-10-28 07:00] hi\r\n`)])).toEqual(
+      ["hi"],
+    );
+    expect(extractUserPrompts([owner(legacyInput())])).toEqual(["assign this to me"]);
+  });
+});
+
 describe("stripOpenClawMetadata", () => {
   it("returns text without any marker with only the leading timestamp removed", () => {
     expect(stripOpenClawMetadata("[Tue 2026-10-27 18:05 GMT+2]   hi\n\n\nthere\n\n")).toBe(
@@ -165,5 +191,30 @@ describe("stripOpenClawMetadata", () => {
 
   it("trims leading and trailing newlines and the timestamp again after stripping", () => {
     expect(stripOpenClawMetadata(`${HINTS[0]}\n\n[Wed 2026-10-28 07:00] hi\n\n`)).toBe("hi");
+  });
+
+  it("trims CRLF line breaks at both ends and then the leading timestamp", () => {
+    expect(stripOpenClawMetadata(`${HINTS[0]}\r\n\r\nhello there\r\n`)).toBe("hello there");
+    expect(stripOpenClawMetadata(`${HINTS[0]}\r\n\r\n[Wed 2026-10-28 07:00] hi\r\n`)).toBe("hi");
+  });
+
+  it("removes the legacy requester_profile hint after a Conversation info json block", () => {
+    expect(stripOpenClawMetadata(legacyInput())).toBe("assign this to me");
+    expect(stripOpenClawMetadata(legacyInput().replace(/\n/g, "\r\n"))).toBe("assign this to me");
+    expect(stripOpenClawMetadata(legacyInput({ after: "" }))).toBe("");
+  });
+
+  it("keeps the hint line when the legacy layout does not match exactly", () => {
+    const variants = [
+      legacyInput({ header: "Sender info: " }),
+      legacyInput({ json: '{"a":1}' }),
+      legacyInput({ json: '{"requester_profile":[1]}' }),
+      legacyInput({ json: '{"requester_profile":{"id":"u1"},"requester_profile_hint":"x"}' }),
+      legacyInput({ gap: "\n" }),
+      legacyInput({ after: "\nassign this to me" }),
+    ];
+    for (const input of variants) {
+      expect(stripOpenClawMetadata(input).startsWith(LEGACY_HINT)).toBe(true);
+    }
   });
 });

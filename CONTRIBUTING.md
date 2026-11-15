@@ -7,13 +7,14 @@
 
 ## Scripts
 
-| Command          | What it does                              |
-| ---------------- | ----------------------------------------- |
-| `pnpm lint`      | `biome ci .`: lint and format check       |
-| `pnpm format`    | `biome check --write .`: apply fixes      |
-| `pnpm typecheck` | `tsc --noEmit`                            |
-| `pnpm test`      | `vitest run`                              |
-| `pnpm build`     | `tsc -p tsconfig.build.json` into `dist/` |
+| Command          | What it does                                                     |
+| ---------------- | ---------------------------------------------------------------- |
+| `pnpm lint`      | `biome ci .`: lint and format check                              |
+| `pnpm format`    | `biome check --write .`: apply fixes                             |
+| `pnpm typecheck` | `tsc --noEmit`                                                   |
+| `pnpm test`      | `vitest run`                                                     |
+| `pnpm check`     | `pnpm lint`, `pnpm typecheck` and `pnpm test`, one after another |
+| `pnpm build`     | `tsc -p tsconfig.build.json` into `dist/`                        |
 
 Formatting and linting use [Biome](https://biomejs.dev). There is no Prettier or ESLint here.
 TypeScript is strict, and relative imports use `.js` extensions.

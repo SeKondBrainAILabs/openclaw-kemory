@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CaptureState } from "../../src/capture/plan.js";
-import { readState, statePath, writeState } from "../../src/capture/state.js";
+import { readState, removeState, statePath, writeState } from "../../src/capture/state.js";
 import { useTempHome } from "../helpers/temp-home.js";
 
 const STATE: CaptureState = { digest: "abc", captured_turns: 3, recent: ["f1", "f2", "f3"] };
@@ -105,5 +105,15 @@ describe("capture state", () => {
       captured_turns: 1,
       recent: ["a"],
     });
+  });
+
+  it("removeState deletes the mark, and a missing mark is not an error", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    await writeState(path, STATE);
+
+    await removeState(path);
+    expect(await readState(path)).toBeNull();
+
+    await expect(removeState(path)).resolves.toBeUndefined();
   });
 });

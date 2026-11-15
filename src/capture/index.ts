@@ -4,12 +4,19 @@ import { KemoryError } from "../client.js";
 import type { PluginDeps } from "../types.js";
 import { type CaptureWhen, planCapture } from "./plan.js";
 import { extractUserPrompts } from "./prompts.js";
-import { readState, statePath, writeState } from "./state.js";
+import { readState, removeState, statePath, writeState } from "./state.js";
 
 const MEMORIES_PATH = "/api/v1/memories";
 // The host's hook timeout does not cancel a handler, so the client deadline is
 // what bounds each capture; the host timeout only has to sit just above it.
 const HOST_TIMEOUT_MARGIN_MS = 2000;
+
+// OpenClaw keeps the session key across these, so a stale mark would be matched against
+// the next session's prompts. /new, /reset and a delete start from nothing.
+const REMOVE_MARK_REASONS = new Set(["new", "reset", "deleted"]);
+// Idle and daily rotation replay the old tail into the new window: the mark is rewound
+// instead, so the replayed tail is found by fingerprint and not sent twice.
+const REWIND_MARK_REASONS = new Set(["idle", "daily"]);
 
 /** The owner's prompts from the last gated turn of one session, waiting to be flushed. */
 interface PendingCapture {
@@ -114,6 +121,33 @@ export function registerCapture(api: OpenClawPluginApi, deps: PluginDeps): void 
     return run;
   }
 
+  /** Removes or rewinds one session's mark, after anything already queued for it. */
+  function queueMarkChange(
+    agentId: string,
+    sessionKey: string,
+    action: "remove" | "rewind",
+  ): Promise<void> {
+    const key = pendingKey(agentId, sessionKey);
+    const run = (chains.get(key) ?? Promise.resolve()).then(async () => {
+      try {
+        const path = statePath(deps.home, agentId, sessionKey);
+        if (action === "remove") {
+          await removeState(path);
+          return;
+        }
+        const state = await readState(path);
+        if (state) await writeState(path, { ...state, captured_turns: 0 });
+      } catch (err) {
+        log.failure("capture", err);
+      }
+    });
+    chains.set(key, run);
+    void run.then(() => {
+      if (chains.get(key) === run) chains.delete(key);
+    });
+    return run;
+  }
+
   const timeout = { timeoutMs: config.requestTimeoutMs + HOST_TIMEOUT_MARGIN_MS };
 
   api.on(
@@ -173,17 +207,42 @@ export function registerCapture(api: OpenClawPluginApi, deps: PluginDeps): void 
       try {
         const sessionKey = event.sessionKey ?? ctx.sessionKey;
         if (!sessionKey) return;
-        const flushes = entriesOfSession(pending, sessionKey, ctx.agentId).map(([key, entry]) =>
-          queueCapture(entry, {
-            kind: "flush",
-            when: "at session end",
-            endReason: `session_end:${event.reason ?? "unknown"}`,
-          }).then(() => {
-            // A newer turn may have replaced the entry while the flush ran.
-            if (pending.get(key) === entry) pending.delete(key);
-          }),
-        );
-        await Promise.all(flushes);
+        const reason = event.reason ?? "unknown";
+        const entries = entriesOfSession(pending, sessionKey, ctx.agentId);
+        const action = REMOVE_MARK_REASONS.has(reason)
+          ? "remove"
+          : REWIND_MARK_REASONS.has(reason)
+            ? "rewind"
+            : undefined;
+        const work: Promise<void>[] = [];
+        if (reason === "deleted") {
+          // Nothing more is sent for a deleted session, so gateway_stop must not find it.
+          for (const [key] of entries) pending.delete(key);
+        } else {
+          for (const [key, entry] of entries) {
+            work.push(
+              queueCapture(entry, {
+                kind: "flush",
+                when: "at session end",
+                endReason: `session_end:${reason}`,
+              }).then(() => {
+                // A newer turn may have replaced the entry while the flush ran.
+                if (pending.get(key) === entry) pending.delete(key);
+              }),
+            );
+          }
+        }
+        if (action) {
+          // After a restart nothing is pending but the mark file persists, and agent_end
+          // writes it under ctx.agentId ?? ''.
+          const agentIds = new Set([
+            ...entries.map(([, entry]) => entry.agentId),
+            ctx.agentId ?? "",
+          ]);
+          // Queued after the flushes above, so each runs behind its own session's flush.
+          for (const agentId of agentIds) work.push(queueMarkChange(agentId, sessionKey, action));
+        }
+        await Promise.all(work);
       } catch (err) {
         log.failure("capture", err);
       }

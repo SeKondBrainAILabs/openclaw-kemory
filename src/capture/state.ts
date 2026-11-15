@@ -47,3 +47,12 @@ export async function writeState(path: string, state: CaptureState): Promise<voi
     throw err;
   }
 }
+
+/** Deletes a mark. A missing file is not an error. */
+export async function removeState(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}

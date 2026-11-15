@@ -19,9 +19,13 @@ export const MEMORY_INSTRUCTION_LINES: string[] = [
   "- Remove a wrong or outdated memory with kemory_forget, using the memory_id that kemory_search returned.",
 ];
 
-const TAG = /<\/?kemory-context>/giu;
+const TAG = /<\s*(?:\/\s*)?kemory-context\b(?:[^<>]*>)?/giu;
 
-/** Removes the wrapper tags, repeating so a tag cannot be rebuilt from the pieces left over. */
+/**
+ * Removes any opening or closing kemory-context tag, in any case, with whitespace or
+ * attributes inside the angle brackets, and also when the closing '>' is missing. It
+ * repeats so a tag cannot be rebuilt from the pieces left over.
+ */
 function stripTags(text: string): string {
   let current = text;
   for (;;) {

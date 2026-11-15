@@ -205,6 +205,10 @@ describe("provider runtime", () => {
         provider.get({ reference: { providerId: "kemory", id: MEMORY_ID } }),
         `get ${name}`,
       ).rejects.toThrow(DENIED);
+      await expect(
+        provider.get({ reference: { providerId: "kemory", id: ".." } }),
+        `get dot id ${name}`,
+      ).rejects.toThrow(DENIED);
     }
     expect(fake.requests).toHaveLength(0);
   });
@@ -242,6 +246,37 @@ describe("provider runtime", () => {
 
     await provider.get({ reference: { providerId: "kemory", id: "a/b c" } });
     expect(fake.requests[0]?.path).toBe("/api/v1/memories/a%2Fb%20c");
+  });
+
+  it.each(["", ".", ".."])("get(%j) returns not_found without a request", async (id) => {
+    const provider = await open(makeDeps(), ownerAuthority());
+
+    await expect(provider.get({ reference: { providerId: "kemory", id } })).resolves.toEqual({
+      status: "not_found",
+    });
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it("get sends ids that are not dot segments as one path segment", async () => {
+    const cases = [
+      ["...", "/api/v1/memories/..."],
+      [".x", "/api/v1/memories/.x"],
+      ["%2e", "/api/v1/memories/%252e"],
+      [".%2e", "/api/v1/memories/.%252e"],
+      ["%2E%2e", "/api/v1/memories/%252E%252e"],
+    ] as const;
+    for (const [, path] of cases) {
+      fake.on("GET", path, { body: { memory_id: "m", content: "t" } });
+    }
+    const provider = await open(makeDeps(), ownerAuthority());
+
+    for (const [id] of cases) {
+      await expect(
+        provider.get({ reference: { providerId: "kemory", id } }),
+        `get ${id}`,
+      ).resolves.toMatchObject({ status: "ok", text: "t" });
+    }
+    expect(fake.requests.map((r) => r.path)).toEqual(cases.map(([, path]) => path));
   });
 
   it("health is ready when signed in and unavailable with NOT_SIGNED_IN otherwise, for any authority, with no request", async () => {

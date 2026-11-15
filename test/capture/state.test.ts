@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CaptureState } from "../../src/capture/plan.js";
-import { readState, statePath, writeState } from "../../src/capture/state.js";
+import { readState, removeState, statePath, writeState } from "../../src/capture/state.js";
 import { useTempHome } from "../helpers/temp-home.js";
 
 const STATE: CaptureState = { digest: "abc", captured_turns: 3, recent: ["f1", "f2", "f3"] };
@@ -52,6 +52,31 @@ describe("capture state", () => {
     expect(await readState(path)).toEqual(next);
   });
 
+  it("rejects and leaves no temp file when the rename fails", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    // A directory at the target makes the rename fail after the temp file was written.
+    mkdirSync(path, { recursive: true });
+
+    await expect(writeState(path, STATE)).rejects.toThrow();
+
+    expect(readdirSync(join(tmp.home, ".kemory", ".captured"))).toEqual([basename(path)]);
+    expect(statSync(path).isDirectory()).toBe(true);
+  });
+
+  it("rejects and leaves no temp file when the temp file cannot be written", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o500);
+    try {
+      await expect(writeState(path, STATE)).rejects.toThrow();
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it("invalid or missing state reads as null", async () => {
     const dir = join(tmp.home, ".kemory", ".captured");
     mkdirSync(dir, { recursive: true });
@@ -80,5 +105,15 @@ describe("capture state", () => {
       captured_turns: 1,
       recent: ["a"],
     });
+  });
+
+  it("removeState deletes the mark, and a missing mark is not an error", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    await writeState(path, STATE);
+
+    await removeState(path);
+    expect(await readState(path)).toBeNull();
+
+    await expect(removeState(path)).resolves.toBeUndefined();
   });
 });

@@ -6,7 +6,11 @@ import { type KemoryConfig, parseConfig } from "../src/config.js";
 import { createLog } from "../src/log.js";
 import type { PluginDeps } from "../src/types.js";
 import { VERSION } from "../src/version.js";
-import { credentialsFixture, writeCredentialsFile } from "./helpers/credentials-file.js";
+import {
+  credentialsFixture,
+  TOKEN_PATH,
+  writeCredentialsFile,
+} from "./helpers/credentials-file.js";
 import { createFakeApi } from "./helpers/fake-api.js";
 import { type FakeKemory, startFakeKemory } from "./helpers/fake-kemory.js";
 import { useTempHome } from "./helpers/temp-home.js";
@@ -125,6 +129,17 @@ describe("statusLines", () => {
       "source: unknown",
       "env: prod",
       "account: error network",
+    ]);
+  });
+
+  it("reports a sign-in refresh that runs out of time as a timeout", async () => {
+    login({ expires_at: Date.now() / 1000 + 30 });
+    fake.on("POST", TOKEN_PATH, { delayMs: 800, status: 500, body: {} });
+
+    expect(await statusLines(depsFor({}, { requestTimeoutMs: 200 }))).toEqual([
+      "source: unknown",
+      "env: prod",
+      "account: error timeout",
     ]);
   });
 

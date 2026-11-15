@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuthProvider } from "../../src/auth.js";
 import { registerCapture } from "../../src/capture/index.js";
-import { statePath } from "../../src/capture/state.js";
+import { readState, statePath } from "../../src/capture/state.js";
 import { createKemoryClient } from "../../src/client.js";
 import { parseConfig } from "../../src/config.js";
 import { createLog } from "../../src/log.js";
@@ -550,5 +550,224 @@ describe("capture hooks", () => {
     await expect(endTurn(fakeApi, owned("a", "b", "c"))).resolves.toBeUndefined();
 
     expect(warnings(fakeApi)).toHaveLength(1);
+  });
+});
+
+describe("capture mark across session ends", () => {
+  const END_CTX = { agentId: "main", sessionId: "s1", sessionKey: SESSION_KEY };
+  const NEXT_CTX = { ...OWNER_CTX, sessionId: "s2" };
+
+  function endSession(
+    fakeApi: FakeApi,
+    reason?: string,
+    sessionKey = SESSION_KEY,
+    ctx: unknown = { ...END_CTX, sessionKey },
+  ) {
+    return fakeApi.runHook(
+      "session_end",
+      { sessionId: "s1", sessionKey, messageCount: 4, ...(reason ? { reason } : {}) },
+      ctx,
+    );
+  }
+
+  const markOf = (agentId = "main", sessionKey = SESSION_KEY) =>
+    readState(statePath(home.home, agentId, sessionKey));
+
+  it("after a reset the new session's prompts are all sent, even one matching the old last prompt", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("x", "ok"));
+    await endSession(fakeApi, "reset");
+    expect(posts()).toHaveLength(1);
+    expect(sentContent()).toMatch(/- x\n- ok$/);
+
+    await endTurn(fakeApi, owned("n1", "ok", "n3"), NEXT_CTX);
+
+    expect(posts()).toHaveLength(2);
+    expect(sentContent(1)).toContain("turns 1-3");
+    expect(sentContent(1)).toMatch(/- n1\n- ok\n- n3$/);
+  });
+
+  it.each(["new", "reset"])("session_end %s flushes, then removes the mark", async (reason) => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b"));
+
+    await endSession(fakeApi, reason);
+
+    expect(posts()).toHaveLength(1);
+    expect((sentBody().metadata as Record<string, unknown>).end_reason).toBe(
+      `session_end:${reason}`,
+    );
+    expect(markExists()).toBe(false);
+  });
+
+  it.each(["idle", "daily"])(
+    "session_end %s flushes, then rewinds the mark so a replayed tail is not resent",
+    async (reason) => {
+      const fakeApi = setup();
+      await endTurn(fakeApi, owned("x", "ok"));
+      await endSession(fakeApi, reason);
+      expect(posts()).toHaveLength(1);
+      expect((sentBody().metadata as Record<string, unknown>).end_reason).toBe(
+        `session_end:${reason}`,
+      );
+      const rewound = await markOf();
+      expect(rewound?.captured_turns).toBe(0);
+
+      await endTurn(fakeApi, owned("x", "ok", "n1", "n2", "n3"), NEXT_CTX);
+
+      expect(posts()).toHaveLength(2);
+      expect(sentContent(1)).toContain("turns 3-5");
+      expect(sentContent(1)).toMatch(/- n1\n- n2\n- n3$/);
+      expect(sentContent(1)).not.toContain("- x");
+    },
+  );
+
+  it("session_end idle keeps recent and digest as they were", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("x", "ok"));
+    await endSession(fakeApi, "shutdown");
+    const before = await markOf();
+    expect(before?.captured_turns).toBe(2);
+
+    await endSession(fakeApi, "idle");
+
+    expect(await markOf()).toEqual({ ...before, captured_turns: 0 });
+  });
+
+  it("session_end idle with no replayed tail sends every new prompt", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("x", "ok"));
+    await endSession(fakeApi, "idle");
+
+    await endTurn(fakeApi, owned("n1", "ok", "n3"), NEXT_CTX);
+
+    expect(posts()).toHaveLength(2);
+    expect(sentContent(1)).toContain("turns 1-3");
+    expect(sentContent(1)).toMatch(/- n1\n- ok\n- n3$/);
+  });
+
+  it.each([
+    ["reset", "removed"],
+    ["idle", "rewound"],
+  ])("session_end %s with nothing pending leaves the mark %s", async (reason, outcome) => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b", "c"));
+    await endSession(fakeApi, "shutdown");
+    expect(posts()).toHaveLength(1);
+
+    await endSession(fakeApi, reason);
+
+    expect(posts()).toHaveLength(1);
+    if (outcome === "removed") expect(markExists()).toBe(false);
+    else expect((await markOf())?.captured_turns).toBe(0);
+  });
+
+  it("session_end with no mark at all creates none", async () => {
+    const fakeApi = setup();
+
+    await endSession(fakeApi, "idle");
+    await endSession(fakeApi, "reset");
+
+    expect(markExists()).toBe(false);
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("session_end reset removes the mark even when the flush POST fails", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b", "c"));
+    await endTurn(fakeApi, owned("a", "b", "c", "d", "e"));
+    expect(posts()).toHaveLength(1);
+    fake.on("POST", MEMORIES_PATH, { status: 500, body: { error: "boom" } });
+
+    await endSession(fakeApi, "reset");
+
+    expect(posts()).toHaveLength(2);
+    expect(markExists()).toBe(false);
+    await fakeApi.runHook("gateway_stop", {}, {});
+    expect(posts()).toHaveLength(2);
+  });
+
+  it("session_end deleted sends nothing, removes the mark, and gateway_stop sends nothing after it", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b", "c"));
+    await endTurn(fakeApi, owned("a", "b", "c", "d", "e"));
+    expect(posts()).toHaveLength(1);
+    expect(markExists()).toBe(true);
+
+    await endSession(fakeApi, "deleted");
+    await fakeApi.runHook("gateway_stop", {}, {});
+
+    expect(posts()).toHaveLength(1);
+    expect(markExists()).toBe(false);
+  });
+
+  it("session_end deleted with a mark and nothing pending sends nothing and removes it", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b", "c"));
+    await endSession(fakeApi, "shutdown");
+    expect(markExists()).toBe(true);
+
+    await endSession(fakeApi, "deleted");
+
+    expect(posts()).toHaveLength(1);
+    expect(markExists()).toBe(false);
+  });
+
+  it.each(["compaction", "shutdown", "restart", "unknown", undefined])(
+    "session_end %s flushes and keeps the mark as written",
+    async (reason) => {
+      const fakeApi = setup();
+      await endTurn(fakeApi, owned("a", "b"));
+
+      await endSession(fakeApi, reason);
+
+      expect(posts()).toHaveLength(1);
+      expect((await markOf())?.captured_turns).toBe(2);
+    },
+  );
+
+  it("session_end reset touches only the named session and agent", async () => {
+    const fakeApi = setup();
+    await endTurn(fakeApi, owned("a", "b", "c"));
+    await endTurn(fakeApi, owned("a", "b", "c"), { ...OWNER_CTX, sessionKey: "agent:main:other" });
+    await endTurn(fakeApi, owned("a", "b", "c"), { ...OWNER_CTX, agentId: "ops" });
+    const { readFileSync } = await import("node:fs");
+    const read = (agentId: string, key: string) =>
+      readFileSync(statePath(home.home, agentId, key), "utf8");
+    const other = read("main", "agent:main:other");
+    const ops = read("ops", SESSION_KEY);
+
+    await endSession(fakeApi, "reset");
+
+    expect(markExists()).toBe(false);
+    expect(read("main", "agent:main:other")).toBe(other);
+    expect(read("ops", SESSION_KEY)).toBe(ops);
+  });
+
+  it("a mark that cannot be removed or rewound makes no hook reject", async () => {
+    const { dirname } = await import("node:path");
+    for (const reason of ["reset", "idle"]) {
+      const fakeApi = setup();
+      await endTurn(fakeApi, owned("a", "b", "c"));
+      await endSession(fakeApi, "shutdown");
+      const dir = dirname(statePath(home.home, "main", SESSION_KEY));
+      chmodSync(dir, 0o500);
+      try {
+        await expect(endSession(fakeApi, reason)).resolves.toBeUndefined();
+      } finally {
+        chmodSync(dir, 0o700);
+      }
+      expect(warnings(fakeApi)).toHaveLength(1);
+      expect(markExists()).toBe(true);
+      expect((await markOf())?.captured_turns).toBe(3);
+    }
+  });
+
+  it("a missing mark is not logged", async () => {
+    const fakeApi = setup();
+
+    await endSession(fakeApi, "reset");
+
+    expect(warnings(fakeApi)).toHaveLength(0);
   });
 });

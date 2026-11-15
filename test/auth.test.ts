@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthProvider, REFRESH_TIMEOUT_MS } from "../src/auth.js";
 import { createKemoryClient, KemoryError } from "../src/client.js";
 import { parseConfig } from "../src/config.js";
@@ -100,6 +100,27 @@ describe("sign-in from the kemory login file", () => {
     expect(logs.filter((l) => l.msg === NO_ACTIVE_ORG)).toEqual([]);
   });
 
+  it("a login file with an empty access_token counts as signed out and sends no request", async () => {
+    login({ access_token: "" });
+    const { auth, client } = stack();
+
+    expect(await auth.resolve(AbortSignal.timeout(2000))).toBeNull();
+    const err = await failure(client.request("GET", API_PATH, { timeoutMs: 2000 }));
+
+    expect(err.kind).toBe("not_signed_in");
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it("a login file with an empty access_token yields to the config apiKey", async () => {
+    login({ access_token: "" });
+    const { auth } = stack({ apiKey: "config-key" });
+
+    const resolved = await auth.resolve(AbortSignal.timeout(2000));
+
+    expect(resolved?.source).toBe("config-api-key");
+    expect(resolved?.headers).toEqual({ "X-API-Key": "config-key" });
+  });
+
   it("falls back to org_id and omits the header with one info log when both are empty", async () => {
     fake.on("GET", API_PATH, { body: {} });
     const { auth, client } = stack();
@@ -196,6 +217,26 @@ describe("sign-in from the kemory login file", () => {
 });
 
 describe("refreshing the login", () => {
+  it("a token that expires exactly 60 s from now is refreshed", async () => {
+    // Only Date is faked: the fake server needs real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const nowSeconds = 1_800_000_000;
+      vi.setSystemTime(nowSeconds * 1000);
+      login({ expires_at: nowSeconds + 60 });
+      fake.on("POST", TOKEN_PATH, { body: rotated(2) });
+      fake.on("GET", API_PATH, { body: {} });
+      const { client } = stack();
+
+      await client.request("GET", API_PATH, { timeoutMs: 2000 });
+
+      expect(tokenRequests()).toHaveLength(1);
+      expect(apiRequests()[0]?.headers.authorization).toBe("Bearer access-token-2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a token within 60 s of expiry is refreshed and the rotated tokens are written back", async () => {
     login({ expires_at: soon(), zzz_unknown: "kept" });
     fake.on("POST", TOKEN_PATH, { body: rotated(2) });
@@ -324,6 +365,19 @@ describe("refreshing the login", () => {
     expect(tokenRequests()).toHaveLength(1);
   });
 
+  it("a rejected refresh does not reuse a file whose access token is new but whose refresh token did not rotate", async () => {
+    login({ expires_at: soon() });
+    fake.on("POST", TOKEN_PATH, () => {
+      // Same refresh token as before, so the rejection still applies to it.
+      login({ access_token: "new-but-same-refresh", expires_at: Date.now() / 1000 + 3600 });
+      return { status: 400, body: { error: "invalid_grant" } };
+    });
+    const { auth } = stack();
+
+    expect(await auth.resolve(AbortSignal.timeout(2000))).toBeNull();
+    expect(tokenRequests()).toHaveLength(1);
+  });
+
   it("an unreachable issuer rejects the request as a network error and keeps the file", async () => {
     login({ expires_at: soon(), issuer: "http://127.0.0.1:1" });
     const { client } = stack({ apiKey: "config-key" });
@@ -389,6 +443,33 @@ describe("a 401 from the API", () => {
 
     expect(tokenRequests()).toHaveLength(0);
     expect(apiRequests()[1]?.headers.authorization).toBe("Bearer from-the-cli");
+  });
+
+  it("a login file deleted before the 401 retry re-reads it ends signed out without calling the issuer", async () => {
+    login();
+    fake.on("GET", API_PATH, () => {
+      rmSync(credentialsFilePath(tmp.home));
+      return { status: 401, body: {} };
+    });
+    const { client } = stack();
+
+    const err = await failure(client.request("GET", API_PATH, { timeoutMs: 2000 }));
+
+    expect(err).toMatchObject({ kind: "http", status: 401 });
+    expect(apiRequests()).toHaveLength(1);
+    expect(tokenRequests()).toHaveLength(0);
+  });
+
+  it("refreshAfter401 resolves to null when the login file is gone", async () => {
+    login();
+    const { auth } = stack();
+    const first = await auth.resolve(AbortSignal.timeout(2000));
+    expect(first).not.toBeNull();
+    rmSync(credentialsFilePath(tmp.home));
+
+    await expect(
+      auth.refreshAfter401(first as NonNullable<typeof first>, AbortSignal.timeout(2000)),
+    ).resolves.toBeNull();
   });
 
   it("is not retried for a key from the login file or the config", async () => {

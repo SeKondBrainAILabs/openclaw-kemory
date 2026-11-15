@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CaptureState } from "../../src/capture/plan.js";
 import { readState, statePath, writeState } from "../../src/capture/state.js";
@@ -50,6 +50,31 @@ describe("capture state", () => {
     const next = { digest: "def", captured_turns: 5, recent: ["f5"] };
     await writeState(path, next);
     expect(await readState(path)).toEqual(next);
+  });
+
+  it("rejects and leaves no temp file when the rename fails", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    // A directory at the target makes the rename fail after the temp file was written.
+    mkdirSync(path, { recursive: true });
+
+    await expect(writeState(path, STATE)).rejects.toThrow();
+
+    expect(readdirSync(join(tmp.home, ".kemory", ".captured"))).toEqual([basename(path)]);
+    expect(statSync(path).isDirectory()).toBe(true);
+  });
+
+  it("rejects and leaves no temp file when the temp file cannot be written", async () => {
+    const path = statePath(tmp.home, "main", "s1");
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o500);
+    try {
+      await expect(writeState(path, STATE)).rejects.toThrow();
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it("invalid or missing state reads as null", async () => {

@@ -15,6 +15,8 @@ const DEFAULT_RESULTS = 5;
 const MAX_RESULTS = 20;
 const EXCERPT_CODE_POINTS = 1000;
 const DENIED = "kemory: memory is only available in the owner's direct sessions";
+// The URL parser resolves '.' and '..' as dot segments and drops an empty one, so these ids would leave /api/v1/memories/.
+const DOT_SEGMENT_IDS = new Set(["", ".", ".."]);
 
 function clamp(value: number | undefined, min: number, max: number, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback;
@@ -94,6 +96,7 @@ function createHandle(
       if (reference.providerId !== PROVIDER_ID) {
         throw new Error(`kemory: cannot read a reference from provider "${reference.providerId}"`);
       }
+      if (DOT_SEGMENT_IDS.has(reference.id)) return { status: "not_found" };
       const path = `/api/v1/memories/${encodeURIComponent(reference.id)}`;
 
       context.assertCurrent();

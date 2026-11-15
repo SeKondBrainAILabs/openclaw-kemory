@@ -146,6 +146,30 @@ describe("provider runtime", () => {
     expect("score" in (page.hits[0] ?? {})).toBe(false);
   });
 
+  it("search drops items whose memory_id is not a string and maps a non-string content to an empty excerpt", async () => {
+    fake.on("POST", "/api/v1/memories/search", {
+      body: {
+        items: [
+          { memory_id: 42, content: "numeric id" },
+          { content: "missing id" },
+          null,
+          { memory_id: "m3", content: null },
+          { memory_id: "m4", content: 7 },
+          { memory_id: "m5", content: "kept" },
+        ],
+      },
+    });
+    const provider = await open(makeDeps(), ownerAuthority());
+
+    const page = await provider.search({ query: "x" });
+
+    expect(page.hits).toEqual([
+      { reference: { providerId: "kemory", id: "m3" }, excerpt: "", source: "memory" },
+      { reference: { providerId: "kemory", id: "m4" }, excerpt: "", source: "memory" },
+      { reference: { providerId: "kemory", id: "m5" }, excerpt: "kept", source: "memory" },
+    ]);
+  });
+
   it("search defaults to 5 results, clamps to 1-20 and leaves min_score out when unset", async () => {
     fake.on("POST", "/api/v1/memories/search", { body: { items: [] } });
     const provider = await open(makeDeps(), ownerAuthority());

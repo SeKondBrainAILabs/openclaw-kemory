@@ -47,6 +47,16 @@ The plugin looks for a credential on every request, in this order.
 1. **`kemory login`.** Run it on the gateway host. The plugin reads the credentials the Kemory CLI stored in `~/.kemory/credentials-<env>` (`<env>` is `prod` unless you set `env` or `KEMORY_ENV`) and refreshes them in place, the way the CLI does, so the CLI and the plugin stay signed in together. Requests go to the organisation you chose with `kemory use`.
 2. **An API key.** Create one with `kemory keys create --for openclaw --write` and set it as `plugins.entries.kemory.config.apiKey`, either as a string or as an OpenClaw SecretRef. The key's organisation is fixed when you create it. A key made without `--write` can search but not store, forget or capture.
 
+To keep the key out of your config file, use a SecretRef. `source` is one of `env`, `file`, `exec` or `store`:
+
+```json
+{
+  "apiKey": { "source": "env", "provider": "default", "id": "KEMORY_API_KEY" }
+}
+```
+
+An environment placeholder that OpenClaw did not expand (such as `${KEMORY_API_KEY}`) is ignored.
+
 A new key may come back with the status `pending_approval`. Until it is approved, Kemory answers every request with 401. The plugin still counts the key as a credential, so it does not show the not-signed-in message below. The tools reply `Kemory request failed (http 401); memory is unavailable right now.`, the gateway log carries a warning, and `openclaw kemory status` ends with `account: error http 401`.
 
 The plugin never writes OpenClaw's config.
@@ -114,7 +124,7 @@ Every call has a hard deadline (`requestTimeoutMs`). A Kemory error or timeout i
 
 ## Config reference
 
-Set these under `plugins.entries.kemory.config`.
+Set these under `plugins.entries.kemory.config`. All keys are optional. Out-of-range numbers are clamped to the nearest limit; values of the wrong type fall back to the default.
 
 | Key                 | Default                                                  | Meaning                                                                           |
 | ------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------- |

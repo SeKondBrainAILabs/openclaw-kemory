@@ -14,6 +14,23 @@ vi.mock("openclaw/plugin-sdk/secret-input-runtime", () => ({
   getPreparedPluginSecretInput: vi.fn(),
 }));
 
+// start's catch needs auth.resolve to throw, which the real provider never does
+// on its own; a test sets this to wrap the provider's resolve.
+const authFault = vi.hoisted(() => ({ resolve: undefined as (() => Promise<never>) | undefined }));
+vi.mock("../src/auth.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/auth.js")>();
+  return {
+    ...original,
+    createAuthProvider: (...args: Parameters<typeof original.createAuthProvider>) => {
+      const provider = original.createAuthProvider(...args);
+      return {
+        ...provider,
+        resolve: (signal: AbortSignal) => authFault.resolve?.() ?? provider.resolve(signal),
+      };
+    },
+  };
+});
+
 let home: ReturnType<typeof useTempHome>;
 let fake: FakeKemory;
 const savedEnv = { ...process.env };
@@ -28,6 +45,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.mocked(getPreparedPluginSecretInput).mockReset();
+  authFault.resolve = undefined;
   home.restore();
   await fake.close();
   process.env = { ...savedEnv };
@@ -61,6 +79,16 @@ describe("plugin entry", () => {
     await signedIn.services[0]?.start({});
     expect(warnings(signedIn.logs)).toEqual([]);
     expect(fake.requests).toHaveLength(0);
+  });
+
+  it("service start resolves and logs one sign-in-check warning when auth.resolve throws", async () => {
+    authFault.resolve = () => Promise.reject(new Error("keychain exploded"));
+    const fakeApi = createFakeApi({ baseUrl: fake.url });
+    plugin.register(fakeApi.api);
+
+    await expect(fakeApi.services[0]?.start({})).resolves.toBeUndefined();
+
+    expect(warnings(fakeApi.logs)).toEqual(["kemory: sign-in-check failed: keychain exploded"]);
   });
 
   it("service start with an unprepared secret reference does not warn NOT_SIGNED_IN", async () => {

@@ -274,6 +274,15 @@ describe("capture hooks", () => {
     expect(fake.requests[0]?.body).not.toContain("sk-abcdefghijklmnopqrstu");
   });
 
+  it("a credential under a JSON key in a prompt is redacted in the sent content", async () => {
+    const fakeApi = setup();
+
+    await endTurn(fakeApi, owned('{"api_key": "abcdef123456"}', "b", "c"));
+
+    expect(sentContent()).toBe(`${HEADER}- {"[REDACTED]"}\n- b\n- c`);
+    expect(fake.requests[0]?.body).not.toContain("abcdef123456");
+  });
+
   it("metadata blocks and timestamps are not sent", async () => {
     const fakeApi = setup();
     const withBlocks = [

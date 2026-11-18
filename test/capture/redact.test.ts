@@ -45,6 +45,21 @@ describe("redact", () => {
     }
   });
 
+  it("redacts a Bearer token under a quoted key, as it does under an unquoted one", () => {
+    const cases: [string, string][] = [
+      ['{"token": "Bearer abcdefgh12345678"}', '{"[REDACTED]"}'],
+      ['{"access_token": "Bearer abcdefgh12345678"}', '{"[REDACTED]"}'],
+      ["{'auth_token': 'Bearer abcdefgh12345678'}", "{'[REDACTED]'}"],
+      ['{\\"token\\": \\"Bearer abcdefgh12345678\\"}', '{\\"[REDACTED]"}'],
+      ["token: Bearer abcdefgh12345678", "[REDACTED]"],
+    ];
+    for (const [input, want] of cases) {
+      const out = redact(input);
+      expect(out, input).toBe(want);
+      expect(out, input).not.toContain("abcdefgh12345678");
+    }
+  });
+
   it("redacts every keyword under every key quoting and separator (table built from the keyword list)", () => {
     const keywords = [
       "api_key",

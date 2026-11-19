@@ -27,6 +27,84 @@ describe("redact", () => {
   it("replaces the private key header line the pattern matches", () => {
     expect(redact("a -----BEGIN RSA PRIVATE KEY----- b")).toBe("a [REDACTED] b");
   });
+
+  it("redacts a credential under a JSON-, dict- or escaped-JSON-quoted key", () => {
+    const cases: [string, string][] = [
+      ['my config is {"api_key": "abcdef123456"}', 'my config is {"[REDACTED]"}'],
+      ['{"api_key": "abcdef123456"}', '{"[REDACTED]"}'],
+      ['{"api_key" : "abcdef123456"}', '{"[REDACTED]"}'],
+      ['"password": "hunter2hunter2"', '"[REDACTED]"'],
+      ["{'api_key': 'abcdef123456'}", "{'[REDACTED]'}"],
+      ['{"apiKey":"abcdef123456","name":"x"}', '{"[REDACTED]","name":"x"}'],
+      ['{"client_secret": "abcdef123456"}', '{"client_[REDACTED]"}'],
+      // The text {\"api_key\": \"abcdef123456\"}: each quote is preceded by one backslash.
+      ['{\\"api_key\\": \\"abcdef123456\\"}', '{\\"[REDACTED]"}'],
+    ];
+    for (const [input, want] of cases) {
+      expect(redact(input), input).toBe(want);
+    }
+  });
+
+  it("redacts a Bearer token under a quoted key, as it does under an unquoted one", () => {
+    const cases: [string, string][] = [
+      ['{"token": "Bearer abcdefgh12345678"}', '{"[REDACTED]"}'],
+      ['{"access_token": "Bearer abcdefgh12345678"}', '{"[REDACTED]"}'],
+      ["{'auth_token': 'Bearer abcdefgh12345678'}", "{'[REDACTED]'}"],
+      ['{\\"token\\": \\"Bearer abcdefgh12345678\\"}', '{\\"[REDACTED]"}'],
+      ["token: Bearer abcdefgh12345678", "[REDACTED]"],
+    ];
+    for (const [input, want] of cases) {
+      const out = redact(input);
+      expect(out, input).toBe(want);
+      expect(out, input).not.toContain("abcdefgh12345678");
+    }
+  });
+
+  it("redacts every keyword under every key quoting and separator (table built from the keyword list)", () => {
+    const keywords = [
+      "api_key",
+      "api-key",
+      "apikey",
+      "api_token",
+      "api-token",
+      "apitoken",
+      "access_token",
+      "access-token",
+      "accesstoken",
+      "auth_token",
+      "auth-token",
+      "authtoken",
+      "token",
+      "secret",
+      "password",
+      "passwd",
+      "pwd",
+    ];
+    const quotes = ["", '"', "'", '\\"'];
+    const separators = [":", "=", ": ", " = ", " : "];
+    const value = "abcdef123456";
+    let count = 0;
+    for (const keyword of keywords) {
+      for (const quote of quotes) {
+        for (const separator of separators) {
+          const input = `${quote}${keyword}${quote}${separator}${quote}${value}${quote}`;
+          expect(redact(input), input).not.toContain(value);
+          count += 1;
+        }
+      }
+    }
+    expect(count).toBe(340);
+  });
+
+  it("keeps a quoted key whose value is shorter than 6 characters, and quoted prose", () => {
+    for (const input of [
+      '{"token": "abc"}',
+      'the "token": it is important here',
+      "we need a token for this",
+    ]) {
+      expect(redact(input), input).toBe(input);
+    }
+  });
 });
 
 describe("redact credential shapes", () => {

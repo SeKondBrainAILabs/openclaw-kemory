@@ -45,6 +45,23 @@ describe("redact", () => {
     }
   });
 
+  it("redacts a value assigned with =>", () => {
+    // '=>' assigns in PHP arrays, Ruby hashes (symbol and string keys, and Hash#inspect output
+    // with no spaces) and Perl's fat comma. The last line is JSON-escaped text.
+    const cases: [string, string][] = [
+      ["$db = ['password' => 'Tr0ub4dor-and-3'];", "Tr0ub4dor-and-3"],
+      ['{ :api_key => "kmy_live_9f8e7d6c5b4a3210" }', "kmy_live_9f8e7d6c5b4a3210"],
+      ['{"access_token"=>"q8Zr2LmN0pX4vB7cW1"}', "q8Zr2LmN0pX4vB7cW1"],
+      ["password => hunter2supersecret", "hunter2supersecret"],
+      ['{\\"secret\\" => \\"q8Zr2LmN0pX4vB7cW1\\"}', "q8Zr2LmN0pX4vB7cW1"],
+    ];
+    for (const [input, value] of cases) {
+      const out = redact(input);
+      expect(out, input).not.toContain(value);
+      expect(out, input).toContain("[REDACTED]");
+    }
+  });
+
   it("redacts a Bearer token under a quoted key, as it does under an unquoted one", () => {
     const cases: [string, string][] = [
       ['{"token": "Bearer abcdefgh12345678"}', '{"[REDACTED]"}'],

@@ -3,8 +3,11 @@
 // before the value, so "api_key": "..." and escaped JSON are caught, and an optional "Bearer "
 // before the value, so {"token": "Bearer ..."} is still redacted whole; kemory-cli
 // internal/hook/redact.go must take the same change.
+// The assignment is ':', '=' or '=>' (PHP arrays, Ruby hashes, Perl's fat comma). A JavaScript
+// arrow function whose parameter is a keyword (`token => token.trim()`) is redacted too: a missed
+// password is worse.
 const CREDENTIAL_PATTERN =
-  /(bearer\s+[\w\-.]{8,}|(?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\\?["']?\s*[:=]\s*\\?["']?(?:bearer\s+)?[^\s"',;}]{6,}|sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[^-]+PRIVATE KEY-----)/;
+  /(bearer\s+[\w\-.]{8,}|(?:api[_-]?key|api[_-]?token|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\\?["']?\s*[:=]>?\s*\\?["']?(?:bearer\s+)?[^\s"',;}]{6,}|sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|-----BEGIN[^-]+PRIVATE KEY-----)/;
 
 /** Replaces credentials in free text with [REDACTED]. */
 export function redact(text: string): string {
